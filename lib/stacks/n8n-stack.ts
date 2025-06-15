@@ -1,0 +1,109 @@
+import * as cdk from "aws-cdk-lib";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+
+import * as path from "path";
+import * as cr from "aws-cdk-lib/custom-resources";
+import { Construct } from "constructs";
+import { readFileSync } from "fs";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+
+export class N8nStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    const keyName = "n8n-cdk-key";
+
+    const publicKeySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      "SshPublicKeySecret",
+      "n8n/ssh-public-key"
+    );
+
+    const keyPairHandler = new NodejsFunction(this, "KeyPairHandler", {
+      entry: path.join(__dirname, "../../lambda/keyPair/importer.ts"),
+      handler: "handler",
+      runtime: cdk.aws_lambda.Runtime.NODEJS_20_X,
+    });
+
+    publicKeySecret.grantRead(keyPairHandler);
+    keyPairHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ec2:ImportKeyPair", "ec2:DeleteKeyPair"],
+        resources: ["*"],
+      })
+    );
+
+    const keyPairProvider = new cr.Provider(this, "KeyPairProvider", {
+      onEventHandler: keyPairHandler,
+    });
+
+    const keyPairCustomResource = new cdk.CustomResource(
+      this,
+      "KeyPairCustomResource",
+      {
+        serviceToken: keyPairProvider.serviceToken,
+        properties: {
+          KeyName: keyName,
+          SecretArn: publicKeySecret.secretArn,
+        },
+      }
+    );
+
+    const keyPair = ec2.KeyPair.fromKeyPairName(this, "N8nKeyPair", keyName);
+
+    const vpc = ec2.Vpc.fromLookup(this, "VPC", { isDefault: true });
+
+    const securityGroup = new ec2.SecurityGroup(this, "N8nSecurityGroup", {
+      vpc,
+      description: "Allow traffic to n8n instance",
+      allowAllOutbound: true,
+    });
+
+    securityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(22),
+      "Allow SSH access"
+    );
+
+    securityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(5678),
+      "Allow n8n access"
+    );
+
+    const role = new iam.Role(this, "N8nInstanceRole", {
+      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          "AmazonSSMManagedInstanceCore"
+        ),
+      ],
+    });
+
+    // Define the EC2 instance
+    const instance = new ec2.Instance(this, "N8nInstance", {
+      vpc,
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T3,
+        ec2.InstanceSize.MICRO
+      ),
+      machineImage: new ec2.AmazonLinuxImage({
+        generation: ec2.AmazonLinuxGeneration.AMAZON_LINUX_2,
+      }),
+      securityGroup,
+      role,
+      keyPair: keyPair,
+    });
+
+    instance.node.addDependency(keyPairCustomResource);
+
+    const userData = readFileSync("./lib/user-data.sh", "utf8");
+    instance.addUserData(userData);
+
+    new cdk.CfnOutput(this, "N8nInstancePublicIp", {
+      value: instance.instancePublicIp,
+    });
+  }
+}

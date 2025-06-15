@@ -1,0 +1,2 @@
+ssh -i n8n-cdk-key ec2-user@<>
+cdk deploy N8nStack 
