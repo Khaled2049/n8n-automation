@@ -81,13 +81,29 @@ export class N8nStack extends cdk.Stack {
     );
 
     const role = new iam.Role(this, "N8nInstanceRole", {
-      assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
+      // The role can be assumed by the EC2 service AND your specific IAM user
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ServicePrincipal("ec2.amazonaws.com"),
+        new iam.ArnPrincipal(process.env.MY_ROLE || "")
+      ),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName(
           "AmazonSSMManagedInstanceCore"
         ),
       ],
     });
+
+    // Add Lambda invoke permissions
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["lambda:InvokeFunction"],
+        resources: [
+          "arn:aws:lambda:us-east-1:308830239283:function:LambdaInvocationStack-invoker",
+          "arn:aws:lambda:us-east-1:308830239283:function:LambdaInvocationStack-invoker:*",
+        ],
+      })
+    );
 
     // Define the EC2 instance
     const instance = new ec2.Instance(this, "N8nInstance", {
@@ -120,6 +136,11 @@ export class N8nStack extends cdk.Stack {
     new cdk.CfnOutput(this, "N8nInstanceElasticIp", {
       value: eip.ref,
       description: "The static Elastic IP address of the n8n instance.",
+    });
+
+    new cdk.CfnOutput(this, "N8nInstanceRoleArn", {
+      value: role.roleArn,
+      description: "The ARN of the N8n EC2 instance role.",
     });
   }
 }
