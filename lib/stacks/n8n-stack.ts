@@ -69,8 +69,15 @@ export class N8nStack extends cdk.Stack {
 
     securityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
-      ec2.Port.tcp(5678),
-      "Allow n8n access"
+      ec2.Port.tcp(80),
+      "Allow HTTP for Caddy"
+    );
+
+    // Allow HTTPS traffic for users to access n8n via Caddy
+    securityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      "Allow HTTPS for Caddy"
     );
 
     const role = new iam.Role(this, "N8nInstanceRole", {
@@ -90,11 +97,19 @@ export class N8nStack extends cdk.Stack {
         ec2.InstanceSize.MICRO
       ),
       machineImage: new ec2.AmazonLinuxImage({
-        generation: ec2.AmazonLinuxGeneration.AMAZON_LINUX_2,
+        generation: ec2.AmazonLinuxGeneration.AMAZON_LINUX_2023,
       }),
       securityGroup,
       role,
       keyPair: keyPair,
+    });
+
+    const eip = new ec2.CfnEIP(this, "N8nEIP");
+
+    // 2. Associate the Elastic IP with the EC2 instance
+    new ec2.CfnEIPAssociation(this, "N8nEIPAssociation", {
+      eip: eip.ref,
+      instanceId: instance.instanceId,
     });
 
     instance.node.addDependency(keyPairCustomResource);
@@ -102,8 +117,9 @@ export class N8nStack extends cdk.Stack {
     const userData = readFileSync("./lib/user-data.sh", "utf8");
     instance.addUserData(userData);
 
-    new cdk.CfnOutput(this, "N8nInstancePublicIp", {
-      value: instance.instancePublicIp,
+    new cdk.CfnOutput(this, "N8nInstanceElasticIp", {
+      value: eip.ref,
+      description: "The static Elastic IP address of the n8n instance.",
     });
   }
 }
