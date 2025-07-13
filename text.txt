@@ -1,3 +1,4 @@
 ssh -i n8n-cdk-key ec2-user@<>
 cdk deploy N8nStack 
 cat /var/log/cloud-init-output.log
+https://d-90679ee0d2.awsapps.com/start

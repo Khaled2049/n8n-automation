@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 # 1. Get the Role ARN from your CDK stack output and paste it here.
-ROLE_ARN=process.env.ROLE_ARN
+ROLE_ARN="arn:aws:iam::308830239283:role/N8nStack-N8nInstanceRole03DB815C-gk1cblIDl59B"
 
 # 2. Define a session name. This can be any identifier.
 SESSION_NAME="n8n-lambda-session-$(date +%s)"
@@ -49,3 +49,7 @@ echo ""
 echo "⏳ Expiration:"
 echo $(echo $CREDS | jq -r '.Credentials.Expiration')
 echo "------------------------------------------------------------------"
+
+
+# For demo just use this CMD if you're using the AWS Identity center
+# aws configure export-credentials
